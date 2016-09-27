@@ -24,9 +24,9 @@
    "variables": {
    		"namingInfix": "[toLower(substring(concat(parameters('resourceGroupVersion'), uniqueString(resourceGroup().id)), 0, 9))]",
    		"longNamingInfix": "[toLower(substring(concat(parameters('resourceGroupVersion'), uniqueString(resourceGroup().id)), 0, 31))]",
-   		"computeApiVersion": "2016-06-15",
-   		"storageApiVersion": "2016-06-15",
-   		"networkApiVersion": "2016-06-15",
+   		"computeApiVersion": "2015-06-15",
+   		"storageApiVersion": "2015-06-15",
+   		"networkApiVersion": "2015-06-15",
    		"windowsOSVersion": "2012-R2-Datacenter",
    		"vmSize": "Standard_A1",
    		"storageAccountType": "Standard_LRS",
@@ -40,13 +40,19 @@
    		"ipConfigName": "[concat(variables('namingInfix'), 'ipconfig')]",
    		"publicIPAddressName": "[concat(variables('namingInfix'), 'pip')]",
    		"publicIPAddressID": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPAddressName'))]",
+      "infraNSGName": "infraNSG",
    		"octopusServerName": "OctopusDeploy",
    		"octopusSAName": "[concat(variables('namingInfix'), 'odsa')]",
+      "octopusNicName": "[concat(variables('octopusServerName'), 'nic')]",
+      "octopusIPConfigName": "[concat(variables('octopusServerName'), 'ipconfig')]",
    		"teamCityServerName": "TeamCity",
    		"teamCitySAName": "[concat(variables('namingInfix'), 'tcsa')]",
+      "teamCityNicName": "[concat(variables('teamCityServerName'), 'nic')]",
+      "teamCityIPConfigName": "[concat(variables('teamCityServerName'), 'ipconfig')]",
    		"bastionServerName": "Bastion",
    		"bastionSAName": "[concat(variables('namingInfix'), 'bastionsa')]",
-   		"bastionNicName": "",
+   		"bastionNicName": "[concat(variables('bastionServerName'), 'nic')]",
+      "bastionIPConfigName": "[concat(variables('bastionServerName'), 'ipconfig')]",
    		"osType": {
 			"publisher": "MicrosoftWindowsServer",
 			"offer": "WindowsServer",
@@ -92,30 +98,106 @@
    	},
    	{
    		"type": "Microsoft.Network/networkInterfaces",
-   		"name": "",
-   		"location": "",
-   		"apiVersion": "",
+   		"name": "[variables('octopusNicName')]",
+   		"location": "[resourceGroup().location]",
+   		"apiVersion": "[variables('networkApiVersion')]",
    		"dependsOn": [
-   			"[concat('Microsoft.Network/publicIPAddresses/', variables('publicIPAddressName'))]",
-   			"[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
+   			"[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]",
+        "[concat('Microsoft.Network/networkSecurityGroups/', variables('infraNSGName'))]"
    		],
    		"properties": {
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('infraNSGName'))]"
+        },
    			"ipConfigurations": [
    			 {
-   			 	"name": "",
+   			 	"name": "[variables('octopusIPConfigName')]",
    			 	"properties": {
    			 		"privateIPAllocationMethod": "Dynamic",
-   			 		"publicIPAddress": {
-   			 			"id": "[resourceId('Microsoft.Network/publicIPAddress', variables('publicIPAddressName'))]"
-   			 		},
    			 		"subnet": {
-   			 			"id": "[variables('')]"
+   			 			"id": "[variables('subnetRef')]"
    			 		}
    			 	}
    			 }
    			]
    		},
    	},
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[variables('teamCityNicName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('networkApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]",
+        "[concat('Microsoft.Network/networkSecurityGroups/', variables('infraNSGName'))]"
+      ],
+      "properties": {
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('infraNSGName'))]"
+        },
+        "ipConfigurations": [
+         {
+          "name": "[variables('teamCityIPConfigName')]",
+          "properties": {
+            "privateIPAllocationMethod": "Dynamic",
+            "subnet": {
+              "id": "[variables('subnetRef')]"
+            }
+          }
+         }
+        ]
+      },
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "name": "[variables('infraNSGName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('networkApiVersion')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "default-allow-rdp",
+            "properties": {
+              "description": "Allow RDP",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "3389",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 1000,
+              "direction": "Inbound"
+            }
+          },
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[variables('bastionNicName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('networkApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Network/publicIPAddresses/', variables('publicIPAddressName'))]",
+        "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+         {
+          "name": "[variables('bastionIPConfigName')]",
+          "properties": {
+            "privateIPAllocationMethod": "Dynamic",
+            "publicIPAddress": {
+              "id": "[variables('publicIPAddressID')]"
+            },
+            "subnet": {
+              "id": "[variables('subnetRef')]"
+            }
+          }
+         }
+        ]
+      },
+    },
    	{
    		"type": "Microsoft.Storage/storageAccounts",
    		"name": "[variables('octopusSAName')]",
@@ -149,48 +231,35 @@
    		"location": "[resourceGroup().location]",
    		"apiVersion": "[variables('computeApiVersion')]",
    		"dependsOn": [
-   			"[resourceId('Microsoft.Storage/storageAccounts/', variables('octopusSAName'))]"
+   			"[concat('Microsoft.Storage/storageAccounts/', variables('octopusSAName'))]"
    		],
    		"properties": {
    			"hardwareProfile": {
    				"vmSize": "[variables('vmSize')]"
    			},
    			"networkProfile": {
-   				"networkInterfaceConfiguration": [
-   				 {
-   				 	"name": "[variables('nicName')]",
-   				 	"properties": {
-   				 		"primary": "true",
-   				 		"ipConfigurations": [
-   				 		 {
-   				 		 	"name": "[variables('ipConfigName')]",
-   				 		 	"properties": {
-   				 		 		"subnet": {
-   				 		 			"id": "[concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', resourceGroup().name, '/providers/Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'), '/subnets/', variables('subnetName'))]"
-   				 		 		}
-   				 		 	}
-   				 		 }
-   				 		]
-   				 	},
-   				 }
-   				]
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('octopusNicName'))]"
+            },
+          ]
    			},
    			"osProfile": {
    				"computerName": "[variables('octopusServerName')]",
-   				"adminUsername": "[variables('adminUsername')]",
-   				"adminPassword": "[variables('adminPassword')]",
+   				"adminUsername": "[parameters('adminUsername')]",
+   				"adminPassword": "[parameters('adminPassword')]",
    			},
    			"storageProfile": {
-   				"imageReference": "[variables('imageReference')]"
-   			},
-   			"osDisk": {
-   				"name": "[concat(variables('octopusServerName'), 'osdisk')]",
-   				"vhd": {
-   					"uri": "[concat('http://', variables('octopusSAName'), '.blob.core.windows.net/', variables('storageAccountContainerName'), '/', 'osdisk', '.vhd')]"
-   				},
-   				"caching": "ReadWrite",
-   				"createOption": "FromImage"
-   			},
+   				"imageReference": "[variables('imageReference')]",
+   			  "osDisk": {
+            "name": "[concat(variables('octopusServerName'), 'osdisk')]",
+   				  "vhd": {
+              "uri": "[concat('http://', variables('octopusSAName'), '.blob.core.windows.net/', variables('storageAccountContainerName'), '/', 'osdisk', '.vhd')]"
+              },
+   				  "caching": "ReadWrite",
+   				  "createOption": "FromImage"
+          },
+        },
    		},
    	},
    	{
@@ -199,50 +268,36 @@
    		"location": "[resourceGroup().location]",
    		"apiVersion": "[variables('computeApiVersion')]",
    		"dependsOn": [
-   			"[resourceId('Microsoft.Storage/storageAccounts/', variables('teamCitySAName'))]"
+   			"[concat('Microsoft.Storage/storageAccounts/', variables('teamCitySAName'))]"
    		],
    		"properties": {
    			"hardwareProfile": {
    				"vmSize": "[variables('vmSize')]"
    			},
    			"networkProfile": {
-				"networkInterfaceConfiguration": [
-   				 {
-   				 	"name": "[variables('nicName')]",
-   				 	"properties": {
-   				 		"primary": "true",
-   				 		"ipConfigurations": [
-   				 		 {
-   				 		 	"name": "[variables('ipConfigName')]",
-   				 		 	"properties": {
-   				 		 		"subnet": {
-   				 		 			"id": "[concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', resourceGroup().name, '/providers/Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'), '/subnets/', variables('subnetName'))]"
-   				 		 		}
-   				 		 	}
-   				 		 }
-   				 		]
-   				 	},
-   				 }
-   				]
-
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('teamCityNicName'))]"
+            }
+          ]
    			},
    			"osProfile": {
    				"computerName": "[variables('teamCityServerName')]",
-   				"adminUsername": "[variables('adminUsername')]",
-   				"adminPassword": "[variables('adminPassword')]",
+   				"adminUsername": "[parameters('adminUsername')]",
+   				"adminPassword": "[parameters('adminPassword')]",
    			},
    			"storageProfile": {
-   				"imageReference": "[variables('imageReference')]"
-   			},
-   			"osDisk": {
-   				"name": "[concat(variables('teamCityServerName'), 'osdisk')]",
-   				"vhd": {
-   					"uri": "[concat('http://', variables('teamCitySAName'), '.blob.core.windows.net/', variables('storageAccountContainerName'), '/', 'osdisk', '.vhd')]"
-   				},
-   				"caching": "ReadWrite",
-   				"createOption": "FromImage"
-   			},
-   		},
+   				"imageReference": "[variables('imageReference')]",
+   			  "osDisk": {
+            "name": "[concat(variables('teamCityServerName'), 'osdisk')]",
+   				  "vhd": {
+              "uri": "[concat('http://', variables('teamCitySAName'), '.blob.core.windows.net/', variables('storageAccountContainerName'), '/', 'osdisk', '.vhd')]"
+              },
+   				  "caching": "ReadWrite",
+   				  "createOption": "FromImage"
+   			  },
+   		  },
+      }
    	},
    	{
    		"type": "Microsoft.Compute/virtualMachines",
@@ -250,50 +305,37 @@
    		"location": "[resourceGroup().location]",
    		"apiVersion": "[variables('computeApiVersion')]",
    		"dependsOn": [
-   			"[resourceId('Microsoft.Storage/storageAccounts/', variables('bastionSAName'))]"
+   			"[concat('Microsoft.Storage/storageAccounts/', variables('bastionSAName'))]",
+        "[concat('Microsoft.Network/networkInterfaces/', variables('bastionNicName'))]"
    		],
    		"properties": {
    			"hardwareProfile": {
    				"vmSize": "[variables('vmSize')]"
    			},
    			"networkProfile": {
-				"networkInterfaceConfiguration": [
-   				 {
-   				 	"name": "[variables('nicName')]",
-   				 	"properties": {
-   				 		"primary": "true",
-   				 		"ipConfigurations": [
-   				 		 {
-   				 		 	"name": "[variables('ipConfigName')]",
-   				 		 	"properties": {
-   				 		 		"subnet": {
-   				 		 			"id": "[concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', resourceGroup().name, '/providers/Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'), '/subnets/', variables('subnetName'))]"
-   				 		 		}
-   				 		 	}
-   				 		 }
-   				 		]
-   				 	},
-   				 }
-   				]
-
-   			},
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('bastionNicName'))]"
+            }
+          ]
+        },
    			"osProfile": {
    				"computerName": "[variables('bastionServerName')]",
-   				"adminUsername": "[variables('adminUsername')]",
-   				"adminPassword": "[variables('adminPassword')]",
+   				"adminUsername": "[parameters('adminUsername')]",
+   				"adminPassword": "[parameters('adminPassword')]",
    			},
    			"storageProfile": {
-   				"imageReference": "[variables('imageReference')]"
-   			},
-   			"osDisk": {
-   				"name": "[concat(variables('bastionServerName'), 'osdisk')]",
-   				"vhd": {
-   					"uri": "[concat('http://', variables('bastionSAName'), '.blob.core.windows.net/', variables('storageAccountContainerName'), '/', 'osdisk', '.vhd')]"
-   				},
-   				"caching": "ReadWrite",
-   				"createOption": "FromImage"
-   			},
-   		}
+   				"imageReference": "[variables('imageReference')]",
+     			"osDisk": {
+     				"name": "[concat(variables('bastionServerName'), 'osdisk')]",
+     				"vhd": {
+     					"uri": "[concat('http://', variables('bastionSAName'), '.blob.core.windows.net/', variables('storageAccountContainerName'), '/', 'osdisk', '.vhd')]"
+     				},
+     				"caching": "ReadWrite",
+     				"createOption": "FromImage"
+   			  },
+        }
+      }
    	},
    ],
    "outputs": {  }
