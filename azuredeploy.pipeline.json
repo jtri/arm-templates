@@ -57,6 +57,10 @@
       "octopusTCSqlServerSAName": "[concat(variables('namingInfix'), 'odtcsqlsa')]",
       "octopusTCSqlServerNicName": "[concat(variables('octopusTCSqlServerName'), 'nic')]",
       "octopusTCSqlServerIPConfigName": "[concat(variables('octopusTCSqlServerName'), 'ipconfig')]",
+      "redisCacheName": "RedisSessionStore",
+      "redisSAName": "[concat(variables('namingInfix'), 'redissa')]",
+      "redisApiVersion": "2015-08-01",
+      "redisDiagnositicsApiVersion": "2015-07-01",
    		"osType": {
   			"publisher": "MicrosoftWindowsServer",
   			"offer": "WindowsServer",
@@ -107,6 +111,44 @@
    			}
    		}
    	},
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "name": "[variables('infraNSGName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('networkApiVersion')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "default-allow-rdp",
+            "properties": {
+              "description": "Allow RDP",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "3389",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 100,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "default-allow-sqltcp",
+            "properties": {
+              "description": "Allow SQL TCP",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "1433",
+              "sourceAddressPrefix": "[variables('subnetPrefix')]",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 200,
+              "direction": "Inbound"
+            }
+          },
+        ]
+      }
+    },
    	{
    		"type": "Microsoft.Network/networkInterfaces",
    		"name": "[variables('octopusNicName')]",
@@ -158,44 +200,6 @@
          }
         ]
       },
-    },
-    {
-      "type": "Microsoft.Network/networkSecurityGroups",
-      "name": "[variables('infraNSGName')]",
-      "location": "[resourceGroup().location]",
-      "apiVersion": "[variables('networkApiVersion')]",
-      "properties": {
-        "securityRules": [
-          {
-            "name": "default-allow-rdp",
-            "properties": {
-              "description": "Allow RDP",
-              "protocol": "Tcp",
-              "sourcePortRange": "*",
-              "destinationPortRange": "3389",
-              "sourceAddressPrefix": "*",
-              "destinationAddressPrefix": "*",
-              "access": "Allow",
-              "priority": 100,
-              "direction": "Inbound"
-            }
-          },
-          {
-            "name": "default-allow-sqltcp",
-            "properties": {
-              "description": "Allow SQL TCP",
-              "protocol": "Tcp",
-              "sourcePortRange": "*",
-              "destinationPortRange": "1433",
-              "sourceAddressPrefix": "[variables('subnetPrefix')]",
-              "destinationAddressPrefix": "*",
-              "access": "Allow",
-              "priority": 200,
-              "direction": "Inbound"
-            }
-          },
-        ]
-      }
     },
     {
       "type": "Microsoft.Network/networkInterfaces",
@@ -278,6 +282,15 @@
     {
       "type": "Microsoft.Storage/storageAccounts",
       "name": "[variables('octopusTCSqlServerSAName')]",
+      "apiVersion": "[variables('storageApiVersion')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "accountType": "[variables('storageAccountType')]"
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "name": "[variables('redisSAName')]",
       "apiVersion": "[variables('storageApiVersion')]",
       "location": "[resourceGroup().location]",
       "properties": {
@@ -436,24 +449,30 @@
       }
     },
     {
-      "type": "",
-      "name": "",
-      "location": "",
-      "apiVersion": "",
+      "type": "Microsoft.Cache/Redis",
+      "name": "[variables('redisCacheName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('redisApiVersion')]",
       "properties": {
-
+        "enableNonSslPort": "[parameters('enableNonSslPort')]",
+        "sku": {
+          "capacity": "",
+          "family": "",
+          "name": ""
+        }
       },
       "resources": [
         {
-          "type": "",
-          "name": "",
-          "location": "",
-          "apiVersion": "",
+          "type": "Microsoft.Cache/redis/providers/diagnosticsettings",
+          "name": "[concat(variables('redisCacheName'), '/Microsoft.Insights/service')]",
+          "location": "[resourceGroup().location]",
+          "apiVersion": "[variables('redisDiagnositicsApiVersion')]",
           "dependsOn": [
-            "[]"
+            "[concat('Microsoft.Cache/Redis/', variables('redisCacheName'))]"
           ],
           "properties": {
-
+            "status": "",
+            "storageAccountName": "[variables('redisSAName')]"
           },
         },
       ]
