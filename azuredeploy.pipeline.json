@@ -53,14 +53,25 @@
    		"bastionSAName": "[concat(variables('namingInfix'), 'bastionsa')]",
    		"bastionNicName": "[concat(variables('bastionServerName'), 'nic')]",
       "bastionIPConfigName": "[concat(variables('bastionServerName'), 'ipconfig')]",
+      "octopusTCSqlServerName": "ODTCSqlServer",
+      "octopusTCSqlServerSAName": "[concat(variables('namingInfix'), 'odtcsqlsa')]",
+      "octopusTCSqlServerNicName": "[concat(variables('octopusTCSqlServerName'), 'nic')]",
+      "octopusTCSqlServerIPConfigName": "[concat(variables('octopusTCSqlServerName'), 'ipconfig')]",
    		"osType": {
-			"publisher": "MicrosoftWindowsServer",
-			"offer": "WindowsServer",
-			"sku": "[variables('windowsOSVersion')]",
-			"version": "latest"
+  			"publisher": "MicrosoftWindowsServer",
+  			"offer": "WindowsServer",
+  			"sku": "[variables('windowsOSVersion')]",
+  			"version": "latest"
     	},
-		"imageReference": "[variables('osType')]",
-		"storageAccountContainerName": "vhds",
+      "sqlOsType": {
+        "publisher": "MicrosoftSQLServer",
+        "offer": "SQL2014-WS2012R2",
+        "sku": "Standard",
+        "version": "latest"
+      },
+		  "imageReference": "[variables('osType')]",
+      "sqlServerImageReference": "[variables('sqlOsType')]",
+		  "storageAccountContainerName": "vhds",
    },
    "resources": [
    	{
@@ -165,7 +176,21 @@
               "sourceAddressPrefix": "*",
               "destinationAddressPrefix": "*",
               "access": "Allow",
-              "priority": 1000,
+              "priority": 100,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "default-allow-sqltcp",
+            "properties": {
+              "description": "Allow SQL TCP",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "1433",
+              "sourceAddressPrefix": "[variables('subnetPrefix')]",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 200,
               "direction": "Inbound"
             }
           },
@@ -190,6 +215,31 @@
             "publicIPAddress": {
               "id": "[variables('publicIPAddressID')]"
             },
+            "subnet": {
+              "id": "[variables('subnetRef')]"
+            }
+          }
+         }
+        ]
+      },
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[variables('octopusTCSqlServerNicName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('networkApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
+      ],
+      "properties": {
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('infraNSGName'))]"
+        },
+        "ipConfigurations": [
+         {
+          "name": "[variables('octopusTCSqlServerIPConfigName')]",
+          "properties": {
+            "privateIPAllocationMethod": "Dynamic",
             "subnet": {
               "id": "[variables('subnetRef')]"
             }
@@ -225,6 +275,15 @@
    			"accountType": "[variables('storageAccountType')]"
    		}
    	},
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "name": "[variables('octopusTCSqlServerSAName')]",
+      "apiVersion": "[variables('storageApiVersion')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "accountType": "[variables('storageAccountType')]"
+      }
+    },
    	{
    		"type": "Microsoft.Compute/virtualMachines",
    		"name": "[variables('octopusServerName')]",
@@ -268,7 +327,8 @@
    		"location": "[resourceGroup().location]",
    		"apiVersion": "[variables('computeApiVersion')]",
    		"dependsOn": [
-   			"[concat('Microsoft.Storage/storageAccounts/', variables('teamCitySAName'))]"
+   			"[concat('Microsoft.Storage/storageAccounts/', variables('teamCitySAName'))]",
+        "[concat('Microsoft.Network/networkInterfaces/', variables('teamCityNicName'))]"
    		],
    		"properties": {
    			"hardwareProfile": {
@@ -337,6 +397,67 @@
         }
       }
    	},
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "name": "[variables('octopusTCSqlServerName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('computeApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Storage/storageAccounts/', variables('octopusTCSqlServerSAName'))]",
+        "[concat('Microsoft.Network/networkInterfaces/', variables('octopusTCSqlServerNicName'))]"
+      ],
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[variables('vmSize')]"
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('octopusTCSqlServerNicName'))]"
+            }
+          ]
+        },
+        "osProfile": {
+          "computerName": "[variables('octopusTCSqlServerName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]",
+        },
+        "storageProfile": {
+          "imageReference": "[variables('sqlServerImageReference')]",
+          "osDisk": {
+            "name": "[concat(variables('octopusTCSqlServerName'), 'osdisk')]",
+            "vhd": {
+              "uri": "[concat('http://', variables('octopusTCSqlServerSAName'), '.blob.core.windows.net/', variables('storageAccountContainerName'), '/', 'osdisk', '.vhd')]"
+            },
+            "caching": "ReadWrite",
+            "createOption": "FromImage"
+          },
+        }
+      }
+    },
+    {
+      "type": "",
+      "name": "",
+      "location": "",
+      "apiVersion": "",
+      "properties": {
+
+      },
+      "resources": [
+        {
+          "type": "",
+          "name": "",
+          "location": "",
+          "apiVersion": "",
+          "dependsOn": [
+            "[]"
+          ],
+          "properties": {
+
+          },
+        },
+      ]
+    },
    ],
    "outputs": {  }
 }
