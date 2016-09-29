@@ -19,11 +19,18 @@
    			"metadata": {
    				"description": "Unique 'version' we give to each deployment of this resource group. Used for unique naming purposes"
    			}
-   		}
-   },
+   		},
+      "enableNonSslPort": {
+        "type": "bool",
+        "metadata": {
+          "description": "A boolean value that indicates whether to allow access via non-SSL ports."
+        }
+      }
+    },
    "variables": {
    		"namingInfix": "[toLower(substring(concat(parameters('resourceGroupVersion'), uniqueString(resourceGroup().id)), 0, 9))]",
-   		"longNamingInfix": "[toLower(substring(concat(parameters('resourceGroupVersion'), uniqueString(resourceGroup().id)), 0, 31))]",
+   		"bastionLongNamingInfix": "[toLower(substring(concat(parameters('resourceGroupVersion'), uniqueString(resourceGroup().id)), 0, 31))]",
+      "loadbalancerLongNamingInfix": "[toLower(substring(concat(parameters('resourceGroupVersion'), uniqueString(resourceGroup().id)), 0, 29))]",
    		"computeApiVersion": "2015-06-15",
    		"storageApiVersion": "2015-06-15",
    		"networkApiVersion": "2015-06-15",
@@ -36,10 +43,19 @@
    		"subnetRef": "[concat(variables('vnetID'), '/subnets/', variables('subnetName'))]",
    		"addressPrefix": "10.0.0.0/16",
    		"subnetPrefix": "10.0.0.0/24",
-   		"nicName": "internalNic",
-   		"ipConfigName": "[concat(variables('namingInfix'), 'ipconfig')]",
-   		"publicIPAddressName": "[concat(variables('namingInfix'), 'pip')]",
-   		"publicIPAddressID": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPAddressName'))]",
+      "gatewaySubnetName": "gatewaySubnet",
+      "gatewaySubnetPrefix": "10.0.1.0/24",
+      "gatewaySubnetRef": "[concat(variables('vnetID'), '/subnets/', variables('gatewaySubnetName'))]",
+   		"bastionPublicIPAddressName": "[concat(variables('namingInfix'), 'bpip')]",
+   		"bastionPublicIPAddressID": "[resourceId('Microsoft.Network/publicIPAddresses', variables('bastionPublicIPAddressName'))]",
+      "webLoadbalancerPublicIPAddressName": "[concat(variables('namingInfix'), 'lbpip')]",
+      "webLoadbalancerPublicIPAddressID": "[resourceId('Microsoft.Network/publicIPAddresses', variables('webLoadbalancerPublicIPAddressName'))]",
+      "webLoadbalancerName": "[concat(variables('namingInfix'), 'gatewaylb')]",
+      "webLoadbalancerID": "[resourceId('Microsoft.Network/loadBalancers', variables('webLoadbalancerName'))]",
+      "frontEndIPConfigID": "[concat(variables('webLoadbalancerID'), '/frontendIPConfigurations/LoadBalancerFrontEnd')]",
+      "webLoadbalancerProbeID": "[concat(variables('webLoadbalancerID'),'/probes/tcpProbe')]",
+      "webLoadbalancerBEpool": "BEAddressPool",
+      "webLoadbalancerBEpoolID": "[concat(variables('lbID'),'/backendAddressPools/',variables('webLoadbalancerBEpool'))]",
       "infraNSGName": "infraNSG",
    		"octopusServerName": "OctopusDeploy",
    		"octopusSAName": "[concat(variables('namingInfix'), 'odsa')]",
@@ -96,21 +112,39 @@
    			 		"addressPrefix": "[variables('subnetPrefix')]"
    			 	}
    			 },
+         {
+          "name":"[variables('gatewaySubnetName')]",
+          "properties": {
+            "addressPrefix": "[variables('gatewaySubnetPrefix')]"
+          },
+         },
    			],
    		}
    	},
    	{
    		"type": "Microsoft.Network/publicIPAddresses",
-   		"name": "[variables('publicIPAddressName')]",
+   		"name": "[variables('bastionPublicIPAddressName')]",
    		"location": "[resourceGroup().location]",
    		"apiVersion": "[variables('networkApiVersion')]",
    		"properties": {
    			"publicIPAllocationMethod": "Dynamic",
    			"dnsSettings": {
-   				"domainNameLabel": "[variables('longNamingInfix')]"
+   				"domainNameLabel": "[variables('bastionLongNamingInfix')]"
    			}
    		}
    	},
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "name": "[variables('webLoadbalancerPublicIPAddressName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('networkApiVersion')]",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic",
+        "dnsSettings": {
+          "domainNameLabel": "[toLower(variables('webLoadbalancerName'))]"
+        }
+      }
+    },
     {
       "type": "Microsoft.Network/networkSecurityGroups",
       "name": "[variables('infraNSGName')]",
@@ -207,7 +241,7 @@
       "location": "[resourceGroup().location]",
       "apiVersion": "[variables('networkApiVersion')]",
       "dependsOn": [
-        "[concat('Microsoft.Network/publicIPAddresses/', variables('publicIPAddressName'))]",
+        "[concat('Microsoft.Network/publicIPAddresses/', variables('bastionpublicIPAddressName'))]",
         "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
       ],
       "properties": {
@@ -217,7 +251,7 @@
           "properties": {
             "privateIPAllocationMethod": "Dynamic",
             "publicIPAddress": {
-              "id": "[variables('publicIPAddressID')]"
+              "id": "[variables('bastionPublicIPAddressID')]"
             },
             "subnet": {
               "id": "[variables('subnetRef')]"
@@ -296,6 +330,67 @@
       "properties": {
         "accountType": "[variables('storageAccountType')]"
       }
+    },
+    {
+      "type": "Microsoft.Network/loadBalancers",
+      "name": "[variables('webLoadbalancerName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('networkApiVersion')]",
+      "tags": {
+        "displayName": "Web Loadbalancer"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Network/publicIPAddresses/', variables('webLoadbalancerPublicIPAddressName'))]"
+      ],
+      "properties": {
+        "frontendIPConfigurations": [
+          {
+            "name": "LoadBalancerFrontEnd",
+            "properties": {
+              "publicIPAddress": {
+                "id": "[variables('webLoadbalancerPublicIPAddressID')]"
+              }
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "[variables('webLoadbalancerBEpool')]"
+          }
+        ],
+        "loadBalancingRules": [
+          {
+            "name": "LBRule",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[variables('frontEndIPConfigID')]"
+              },
+              "backendAddressPools": {
+                "id": "[variables('webLoadbalancerBEpoolID')]"
+              },
+              "protocol": "tcp",
+              "frontendPort": 80,
+              "backendPort": 80,
+              "enableFlowingIP": "false",
+              "idleTimeoutInMinutes": 5,
+              "probe": {
+                "id": "[variables('webLoadbalancerProbeID')]"
+              }
+            }
+          }
+        ],
+        "probes": [
+          {
+            "name": "tcpProbe",
+            "properties": {
+              "protocol": "tcp",
+              "port": 80,
+              "intervalInSeconds": 5,
+              "numberOfProbes": 2
+            }
+          }
+        ]
+      },
     },
    	{
    		"type": "Microsoft.Compute/virtualMachines",
@@ -456,9 +551,9 @@
       "properties": {
         "enableNonSslPort": "[parameters('enableNonSslPort')]",
         "sku": {
-          "capacity": "",
-          "family": "",
-          "name": ""
+          "capacity": 2,
+          "family": "C",
+          "name": "Basic"
         }
       },
       "resources": [
@@ -471,7 +566,7 @@
             "[concat('Microsoft.Cache/Redis/', variables('redisCacheName'))]"
           ],
           "properties": {
-            "status": "",
+            "status": "OFF",
             "storageAccountName": "[variables('redisSAName')]"
           },
         },
